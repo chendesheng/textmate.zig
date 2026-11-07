@@ -29,7 +29,7 @@ pub const StringsArena = struct {
 
     pub fn append(self: *StringsArena, str: []const u8) ![]const u8 {
         if (str.len == 0) return empty_string;
-        const buf = try self.allocator.dupeZ(u8, str);
+        const buf = try self.allocator.dupeSentinel(u8, str, 0);
         try self.arena.append(self.allocator, buf);
         return buf[0..str.len];
     }
@@ -68,7 +68,7 @@ pub const StringsArena = struct {
 pub fn toHash(s: []const u8) u64 {
     var hasher = std.hash.Fnv1a_64.init();
     if (s.len < 16) {
-        var tmp: [128]u8 = [_]u8{0} ** 128;
+        var tmp: [128]u8 = @splat(0);
         @memcpy(tmp[0..s.len], s);
         hasher.update(&tmp);
     }

@@ -15,12 +15,14 @@ A highly performant, fully spec-compliant TextMate grammar parser and syntax hig
 ## Getting Started
 
 ### Requirements
-- **Zig 0.15.x** or **0.16.0-dev**
+- **Zig 0.17.x**
+- **Oniguruma** (`brew install oniguruma` on macOS)
 
 ### Building the Project
-Clone the repository and compile the library and example applications:
+Clone the repository and compile the library:
 ```sh
 zig build
+zig build test   # unit tests, serialize tests, and grammar specs
 ```
 
 ### Running Examples

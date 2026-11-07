@@ -458,7 +458,7 @@ pub const Parser = struct {
                         .regex = rx,
                         .anchor_start = hard_start,
                         .anchor_end = hard_start,
-                        .ranges = [_]MatchRange{MatchRange{ .group = 0, .start = 0, .end = 0 }} ** config.max_match_ranges,
+                        .ranges = @splat(MatchRange{ .group = 0, .start = 0, .end = 0 }),
                     };
                     m.count = 1;
                     m.start = hard_start;
@@ -519,7 +519,7 @@ pub const Parser = struct {
                     .regex = rx,
                     .anchor_start = hard_start,
                     .anchor_end = hard_end,
-                    .ranges = [_]MatchRange{MatchRange{ .group = 0, .start = 0, .end = 0 }} ** config.max_match_ranges,
+                    .ranges = @splat(MatchRange{ .group = 0, .start = 0, .end = 0 }),
                 };
 
                 // if (r.count() > 0) {
@@ -1430,6 +1430,3 @@ test "test references" {
     const expectedOutput = "hello ab world de.";
     try std.testing.expectEqualStrings(output.items[0..expectedOutput.len], expectedOutput);
 }
-
-
-

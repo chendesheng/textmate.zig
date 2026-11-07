@@ -3,7 +3,7 @@ const regex = @import("regex.zig");
 const region = @import("region.zig");
 const types = @import("types.zig");
 
-pub const c = @import("c.zig");
+pub const c = @import("c.zig").c;
 pub const testing = @import("testing.zig");
 pub const errors = @import("errors.zig");
 

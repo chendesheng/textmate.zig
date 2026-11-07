@@ -17,8 +17,8 @@ pub const SpanCaptures = struct {
     text: []const u8,
     start: usize,
     end: usize,
-    atoms: [config.max_span_captures]Atom = [_]Atom{Atom{}} ** config.max_span_captures,
-    scopes: [config.max_span_captures][]const u8 = [_][]const u8{""} ** config.max_span_captures,
+    atoms: [config.max_span_captures]Atom = @splat(Atom{}),
+    scopes: [config.max_span_captures][]const u8 = @splat(""),
     count: u8 = 0,
 };
 
@@ -215,7 +215,7 @@ pub const Processor = struct {
     pub fn produce(self: *Processor) !*ArrayList(SpanCaptures) {
         self.spans.clearRetainingCapacity();
 
-        var cut_points: [128]usize = [_]usize{0xffff} ** 128;
+        var cut_points: [128]usize = @splat(@as(usize, 0xffff));
         var cut_points_count: u8 = 0;
         for (self.captures.items) |cap| {
             Processor.add_cut_point(&cut_points, &cut_points_count, cap.start);

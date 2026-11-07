@@ -1,90 +1,24 @@
 const std = @import("std");
-const res = @import("src/resources/resources.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // generate embedded.zig
-    const generate_embedded = b.allocator.create(std.Build.Step) catch unreachable;
-    generate_embedded.* = std.Build.Step.init(.{
-        .id = .custom,
-        .name = "generate_embedded",
-        .owner = b,
-        .makeFn = struct {
-            fn make(step: *std.Build.Step, opts: std.Build.Step.MakeOptions) !void {
-                const bb = step.owner;
-                _ = opts;
-
-                var assets_buffer = try std.ArrayList(u8).initCapacity(bb.allocator, 2048);
-                defer assets_buffer.deinit(bb.allocator);
-
-                const themes_path = try bb.build_root.join(bb.allocator, &.{"src/resources/themes"});
-                try res.generateEmbeddedThemesFile(bb.graph.io, bb.allocator, res.ArrayListWriter{ .list = &assets_buffer, .allocator = bb.allocator }, "theme_", themes_path);
-
-                const grammars_path = try bb.build_root.join(bb.allocator, &.{"src/resources/grammars"});
-                try res.generateEmbeddedGrammarsFile(bb.graph.io, bb.allocator, res.ArrayListWriter{ .list = &assets_buffer, .allocator = bb.allocator }, "grammar_", grammars_path);
-
-                const embed_path = try bb.cache_root.join(bb.allocator, &.{"embedded.zig"});
-                std.debug.print("{s}\n", .{embed_path});
-
-                const embed_file = try std.Io.Dir.createFileAbsolute(bb.graph.io, embed_path, .{});
-                defer embed_file.close(bb.graph.io);
-                try embed_file.writeStreamingAll(bb.graph.io, assets_buffer.items);
-            }
-        }.make,
+    const c_onig = onigModule(b, target, optimize);
+    const onig = b.addModule("oniguruma", .{
+        .root_source_file = b.path("src/pkg/oniguruma/main.zig"),
+        .target = target,
+        .optimize = optimize,
     });
+    onig.addImport("c_onig", c_onig);
 
-    // copy over to src/embedded.zig
-    var update_embedded = b.addUpdateSourceFiles();
-    update_embedded.addCopyFileToSource(
-        b.path(".zig-cache/embedded.zig"),
-        "src/resources/embedded.zig",
-    );
-    update_embedded.step.dependOn(generate_embedded);
-
-    // the build command
-    const update_step = b.step("generate", "Read themes and grammars folders and generate embedded.zig");
-    update_step.dependOn(&update_embedded.step);
-
-    // textmate Module - this produces a Zig importable module
     const lib_mod = b.addModule("textmate", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
+    lib_mod.addImport("oniguruma", onig);
 
-    // cat example (tmcat)
-    const cat_exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/examples/cat.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    cat_exe_mod.addImport("textmate_lib", lib_mod);
-
-    // less example (tmless)
-    const less_exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/examples/less.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    less_exe_mod.addImport("textmate_lib", lib_mod);
-
-    const test_specs_mod = b.createModule(.{
-        .root_source_file = b.path("src/test_specs.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    test_specs_mod.addImport("textmate_lib", lib_mod);
-
-    const tests_mod = b.createModule(.{
-        .root_source_file = b.path("src/tests.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    tests_mod.addImport("textmate_lib", lib_mod);
-
-    // textmate lib - this produces the static library
     const lib = b.addLibrary(.{
         .linkage = .static,
         .name = "textmate",
@@ -92,116 +26,54 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(lib);
 
-    // build the examples
-    const cat_exe = b.addExecutable(.{
-        .name = "catx",
-        .root_module = cat_exe_mod,
-    });
-    b.installArtifact(cat_exe);
-    const run_cat_cmd = b.addRunArtifact(cat_exe);
-
-    const less_exe = b.addExecutable(.{
-        .name = "lessx",
-        .root_module = less_exe_mod,
-    });
-    b.installArtifact(less_exe);
-    const run_less_cmd = b.addRunArtifact(less_exe);
-
-    // Build export-module as a shared library for running via Lua
-
-    const lua_mod = b.createModule(.{
-        .root_source_file = b.path("src/lua_module.zig"),
+    const unit_mod = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
-    lua_mod.addImport("textmate_lib", lib_mod);
-    const lua_library = b.addLibrary(.{
-        .name = "lua_textmate",
-        .root_module = lua_mod,
-        .linkage = .dynamic,
-    });
-    lua_library.root_module.linkSystemLibrary("lua", .{});
-    lua_library.root_module.linkSystemLibrary("luajit", .{});
-    b.installArtifact(lua_library);
+    unit_mod.addImport("oniguruma", onig);
+    const unit_tests = b.addTest(.{ .root_module = unit_mod });
+    const run_unit_tests = b.addRunArtifact(unit_tests);
 
-    const test_specs_exe = b.addExecutable(.{
-        .name = "test_specs",
-        .root_module = test_specs_mod,
-    });
-    b.installArtifact(test_specs_exe);
-    const run_test_specs_cmd = b.addRunArtifact(test_specs_exe);
-
-    const tests_exe = b.addExecutable(.{
-        .name = "tests",
-        .root_module = tests_mod,
-    });
-    b.installArtifact(tests_exe);
-    const run_tests_cmd = b.addRunArtifact(tests_exe);
-
-    // oniguruma
-    if (b.lazyDependency("oniguruma", .{
+    const tests_mod = b.createModule(.{
+        .root_source_file = b.path("src/tests.zig"),
         .target = target,
         .optimize = optimize,
-    })) |oniguruma_dep| {
-        lib.root_module.addImport(
-            "oniguruma",
-            oniguruma_dep.module("oniguruma"),
-        );
-        lib_mod.linkLibrary(oniguruma_dep.artifact("oniguruma"));
-    }
-
-    // By making the run step depend on the install step, it will be run from the
-    // installation directory rather than directly from within the cache directory.
-    // This is not necessary, however, if the application depends on other installed
-    // files, this ensures they will be present and in the expected location.
-    run_cat_cmd.step.dependOn(b.getInstallStep());
-    run_less_cmd.step.dependOn(b.getInstallStep());
-    run_test_specs_cmd.step.dependOn(b.getInstallStep());
-    run_tests_cmd.step.dependOn(b.getInstallStep());
-
-    // This allows the user to pass arguments to the application in the build
-    // command itself, like this: `zig build run -- arg1 arg2 etc`
-    if (b.args) |args| {
-        run_cat_cmd.addArgs(args);
-        run_less_cmd.addArgs(args);
-        run_test_specs_cmd.addArgs(args);
-        run_tests_cmd.addArgs(args);
-    }
-
-    // This creates a build step. It will be visible in the `zig build --help` menu,
-    // and can be selected like this: `zig build run`
-    // This will evaluate the `run` step rather than the default, which is "install".
-    const run_cat_step = b.step("run", "Run cat");
-    run_cat_step.dependOn(&run_cat_cmd.step);
-
-    const run_less_step = b.step("less", "Run less");
-    run_less_step.dependOn(&run_less_cmd.step);
-
-    const run_test_specs_step = b.step("specs", "Run the textmate spec tests");
-    run_test_specs_step.dependOn(&run_test_specs_cmd.step);
-
-    const run_tests_step = b.step("tests", "Run serialize/deserialize tests");
-    run_tests_step.dependOn(&run_tests_cmd.step);
-
-    // Creates a step for unit testing. This only builds the test executable
-    // but does not run it.
-    const lib_unit_tests = b.addTest(.{
-        .root_module = lib_mod,
     });
+    tests_mod.addImport("textmate_lib", lib_mod);
+    const tests_exe = b.addExecutable(.{ .name = "tests", .root_module = tests_mod });
+    const run_tests = b.addRunArtifact(tests_exe);
 
-    const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
-
-    const exe_unit_tests = b.addTest(.{
-        .root_module = test_specs_mod,
+    const specs_mod = b.createModule(.{
+        .root_source_file = b.path("src/test_specs.zig"),
+        .target = target,
+        .optimize = optimize,
     });
+    specs_mod.addImport("textmate_lib", lib_mod);
+    const specs_exe = b.addExecutable(.{ .name = "test_specs", .root_module = specs_mod });
+    const run_specs = b.addRunArtifact(specs_exe);
 
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
+    const test_step = b.step("test", "Run all textmate tests");
+    test_step.dependOn(&run_unit_tests.step);
+    test_step.dependOn(&run_tests.step);
+    test_step.dependOn(&run_specs.step);
 
-    // Similar to creating the run step earlier, this exposes a `test` step to
-    // the `zig build --help` menu, providing a way for the user to request
-    // running the unit tests.
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_lib_unit_tests.step);
-    test_step.dependOn(&run_exe_unit_tests.step);
-    test_step.dependOn(&run_tests_cmd.step);
+    const tests_step = b.step("tests", "Run serialize/deserialize tests");
+    tests_step.dependOn(&run_tests.step);
+    const specs_step = b.step("specs", "Run textmate grammar spec tests");
+    specs_step.dependOn(&run_specs.step);
+}
+
+fn onigModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.Optimize) *std.Build.Module {
+    const translate = b.addTranslateC(.{
+        .root_source_file = b.path("src/pkg/oniguruma/oniguruma.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    translate.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
+    const module = translate.createModule();
+    module.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
+    module.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
+    module.linkSystemLibrary("onig", .{});
+    return module;
 }

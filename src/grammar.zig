@@ -34,13 +34,13 @@ pub const Rule = struct {
 
     // TODO change to void - regex compile errors are blamed on user-defined grammars - fail silently
     pub fn compile(self: *Rule, regex: []const u8) !void {
-        var err_info: oni.c.c.OnigErrorInfo = undefined;
-        var self_val: oni.c.c.OnigRegex = undefined;
-        const code = oni.c.c.onig_new(
+        var err_info: oni.c.OnigErrorInfo = undefined;
+        var self_val: oni.c.OnigRegex = undefined;
+        const code = oni.c.onig_new(
             &self_val,
             regex.ptr,
             regex.ptr + regex.len,
-            oni.c.c.ONIG_OPTION_CAPTURE_GROUP,
+            oni.c.ONIG_OPTION_CAPTURE_GROUP,
             @ptrCast(@alignCast(oni.Encoding.utf8)),
             @ptrCast(@alignCast(oni.Syntax.ruby)),
             &err_info,
@@ -49,7 +49,7 @@ pub const Rule = struct {
 
             // TODO: this happens on cpp
             // var err_buf: [oni.errors.MAX_ERROR_LEN]u8 = undefined;
-            // const len = oni.c.c.onig_error_code_to_str(err_buf[0..].ptr, code, &err_info);
+            // const len = oni.c.onig_error_code_to_str(err_buf[0..].ptr, code, &err_info);
             // std.debug.print("ONIGURUMA COMPILE ERROR for '{s}': {s} ({})\n", .{ regex, err_buf[0..@intCast(len)], code });
 
             self.valid = .Invalid;
@@ -631,7 +631,7 @@ pub const GrammarLibrary = struct {
 
         // Most grammar definitions don't provide fileTypes
         // check against scope name instead .. using "source.{ext}"
-        var scope_name: [64]u8 = [_]u8{0} ** 64;
+        var scope_name: [64]u8 = @splat(0);
         var scope_name_len = "source".len;
         @memcpy(scope_name[0..scope_name_len], "source");
         scope_name_len += dot_ext.len;

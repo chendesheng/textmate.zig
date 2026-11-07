@@ -142,7 +142,7 @@ fn testSerializeDeserializeStateWithDynamicReferences(allocator: std.mem.Allocat
 
     // Stack should have 2 elements: root syntax, and the dynamic string match context.
     try std.testing.expectEqual(@as(usize, 2), state.stack.items.len);
-    
+
     // The active rule's dynamic end pattern ID should be set in rx_end.id
     const active_ctx = state.stack.items[1];
     try std.testing.expect(active_ctx.rx_end.id > 0);
@@ -159,10 +159,10 @@ fn testSerializeDeserializeStateWithDynamicReferences(allocator: std.mem.Allocat
     try par.deserialize(&deserialized_state, &serial);
 
     try std.testing.expectEqual(state.stack.items.len, deserialized_state.stack.items.len);
-    
+
     const deserialized_active_ctx = deserialized_state.stack.items[1];
     try std.testing.expectEqual(active_ctx.rx_end.id, deserialized_active_ctx.rx_end.id);
-    
+
     // Check that rx_end is correctly resolved from the parser's regex_map
     try std.testing.expectEqualStrings(active_ctx.rx_end.expr.?, deserialized_active_ctx.rx_end.expr.?);
 
@@ -202,8 +202,6 @@ fn testSerializeDeserializeContinueParsing(allocator: std.mem.Allocator, io: std
 
     try par_b1.parseLine(&state_b1, "/* start\n", true);
 
-
-
     // Serialize state
     var serial = try std.ArrayList(StateContextPack).initCapacity(allocator, 16);
     defer serial.deinit(allocator);
@@ -223,8 +221,6 @@ fn testSerializeDeserializeContinueParsing(allocator: std.mem.Allocator, io: std
 
     // Deserialize serialized state into Parser 2's state
     try par_b2.deserialize(&state_b2, &serial);
-
-
 
     // Now parse Line 2 on Parser 2
     try par_b2.parseLine(&state_b2, "middle\n", false);

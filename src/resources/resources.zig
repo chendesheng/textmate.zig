@@ -26,22 +26,22 @@ var grammar_id: u16 = 1;
 // TODO use StringsArena (strings are copied anyway), and ArrayList
 pub const GrammarInfo = struct {
     id: usize = 0, // for caching purposed
-    name: [MAX_NAME_LENGTH]u8 = [_]u8{0} ** MAX_NAME_LENGTH,
-    scope_name: [MAX_NAME_LENGTH]u8 = [_]u8{0} ** MAX_NAME_LENGTH,
-    full_path: [std.Io.Dir.max_path_bytes]u8 = [_]u8{0} ** std.Io.Dir.max_path_bytes,
-    file_types: [MAX_FILE_TYPES][MAX_EXT_LENGTH]u8 = [_][MAX_EXT_LENGTH]u8{[_]u8{0} ** MAX_EXT_LENGTH} ** MAX_FILE_TYPES,
+    name: [MAX_NAME_LENGTH]u8 = @splat(0),
+    scope_name: [MAX_NAME_LENGTH]u8 = @splat(0),
+    full_path: [std.Io.Dir.max_path_bytes]u8 = @splat(0),
+    file_types: [MAX_FILE_TYPES][MAX_EXT_LENGTH]u8 = @splat(@as([MAX_EXT_LENGTH]u8, @splat(0))),
     file_types_count: u8 = 0,
     inject_only: bool = false,
-    inject_to: [MAX_INJECT_TO][MAX_NAME_LENGTH]u8 = [_][MAX_NAME_LENGTH]u8{[_]u8{0} ** MAX_NAME_LENGTH} ** MAX_INJECT_TO,
+    inject_to: [MAX_INJECT_TO][MAX_NAME_LENGTH]u8 = @splat(@as([MAX_NAME_LENGTH]u8, @splat(0))),
     inject_to_count: u8 = 0,
     embedded_file: ?[]const u8 = null,
 };
 
 pub const ThemeInfo = struct {
     id: usize = 0, // for caching purposes
-    name: [MAX_NAME_LENGTH]u8 = [_]u8{0} ** MAX_NAME_LENGTH,
-    author: [MAX_NAME_LENGTH]u8 = [_]u8{0} ** MAX_NAME_LENGTH,
-    full_path: [std.Io.Dir.max_path_bytes]u8 = [_]u8{0} ** std.Io.Dir.max_path_bytes,
+    name: [MAX_NAME_LENGTH]u8 = @splat(0),
+    author: [MAX_NAME_LENGTH]u8 = @splat(0),
+    full_path: [std.Io.Dir.max_path_bytes]u8 = @splat(0),
     embedded_file: ?[]const u8 = null,
 };
 
