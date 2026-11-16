@@ -1160,11 +1160,13 @@ pub const Parser = struct {
         var end = block.len;
         var last_start: usize = 0;
         var last_syntax: u64 = 0;
-        var last_stack_size: usize = state.size();
 
         // handle while
         // todo track while count
         const while_match = try self.matchWhile(state, block);
+        // The while rules may pop contexts, so the zero-width cycle baseline
+        // must be taken after they run.
+        var last_stack_size: usize = state.size();
         if (while_match.count > 0) {
             start = while_match.end;
         }
