@@ -43,4 +43,5 @@ test {
     _ = @import("grammar.zig");
     _ = @import("theme.zig");
     _ = @import("atoms.zig");
+    _ = @import("scopes.zig");
 }
