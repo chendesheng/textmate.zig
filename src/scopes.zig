@@ -1,16 +1,28 @@
+//! TextMate scope-selector evaluation.
+//!
+//! Supports `|`, `&`, `-`, whitespace (descendant selectors), commas,
+//! parentheses and `*` wildcard segments. Unsupported characters are consumed
+//! so evaluation always makes progress; the previous implementation spun in
+//! `parseAnd` on the `*` wildcards used by HTML injection selectors.
+
 const std = @import("std");
 
-const Allocator = std.mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayList = std.ArrayList;
-
 fn matchesScope(scopes: []const []const u8, target: []const u8) bool {
-    for (scopes) |s| {
-        if (std.mem.startsWith(u8, s, target)) {
-            if (s.len == target.len or s[target.len] == '.') {
-                return true;
+    for (scopes) |scope| {
+        var scope_it = std.mem.splitScalar(u8, scope, '.');
+        var target_it = std.mem.splitScalar(u8, target, '.');
+        var matched = true;
+        while (target_it.next()) |want| {
+            const got = scope_it.next() orelse {
+                matched = false;
+                break;
+            };
+            if (!std.mem.eql(u8, want, "*") and !std.mem.eql(u8, want, got)) {
+                matched = false;
+                break;
             }
         }
+        if (matched) return true;
     }
     return false;
 }
@@ -47,13 +59,19 @@ const SelectorEvaluator = struct {
         const start = self.pos;
         while (self.pos < self.expr.len) {
             const ch = self.expr[self.pos];
-            if (std.ascii.isAlphanumeric(ch) or ch == '.' or ch == '-' or ch == '_') {
+            if (std.ascii.isAlphanumeric(ch) or ch == '.' or ch == '-' or ch == '_' or ch == '*') {
                 self.pos += 1;
             } else {
                 break;
             }
         }
-        if (start == self.pos) return false;
+        if (start == self.pos) {
+            // Consume the unsupported character so the callers always make
+            // progress; treating it as an unmatched primary is enough for the
+            // injector selectors shipped with the bundled grammars.
+            self.pos += 1;
+            return false;
+        }
         const scope_name = self.expr[start..self.pos];
         return matchesScope(self.scopes, scope_name);
     }
@@ -62,13 +80,12 @@ const SelectorEvaluator = struct {
         var res = self.parseAnd();
         while (true) {
             self.skipWhitespace();
-            if (self.pos < self.expr.len and self.expr[self.pos] == '|') {
-                self.pos += 1;
-                const right = self.parseAnd();
-                res = res or right;
-            } else {
-                break;
-            }
+            if (self.pos >= self.expr.len) break;
+            const ch = self.expr[self.pos];
+            if (ch != '|' and ch != ',') break;
+            self.pos += 1;
+            const right = self.parseAnd();
+            res = res or right;
         }
         return res;
     }
@@ -79,6 +96,7 @@ const SelectorEvaluator = struct {
             self.skipWhitespace();
             if (self.pos >= self.expr.len) break;
             const ch = self.expr[self.pos];
+            if (ch == '|' or ch == ',' or ch == ')') break;
             if (ch == '-') {
                 self.pos += 1;
                 const right = self.parsePrimary();
@@ -87,8 +105,6 @@ const SelectorEvaluator = struct {
                 self.pos += 1;
                 const right = self.parsePrimary();
                 res = res and right;
-            } else if (ch == '|' or ch == ')') {
-                break;
             } else {
                 const right = self.parsePrimary();
                 res = res and right;
@@ -98,19 +114,61 @@ const SelectorEvaluator = struct {
     }
 };
 
-pub fn matchesScopeSelector(scopes: []const []const u8, selector: []const u8) bool {
-    var alt_it = std.mem.splitScalar(u8, selector, ',');
-    while (alt_it.next()) |alt| {
-        const trimmed = std.mem.trim(u8, alt, " \t\r\n");
-        if (trimmed.len == 0) continue;
-        var trimmed_alt = trimmed;
-        if (std.mem.startsWith(u8, trimmed_alt, "L:")) {
-            trimmed_alt = trimmed_alt[2..];
-        } else if (std.mem.startsWith(u8, trimmed_alt, "R:")) {
-            trimmed_alt = trimmed_alt[2..];
-        }
-        var eval = SelectorEvaluator.init(scopes, trimmed_alt);
-        if (eval.parseOr()) return true;
+fn matchesAlternative(scopes: []const []const u8, alternative: []const u8) bool {
+    var trimmed = std.mem.trim(u8, alternative, " \t\r\n");
+    if (trimmed.len == 0) return false;
+    if (std.mem.startsWith(u8, trimmed, "L:") or std.mem.startsWith(u8, trimmed, "R:")) {
+        trimmed = trimmed[2..];
     }
-    return false;
+    var eval = SelectorEvaluator.init(scopes, trimmed);
+    return eval.parseOr();
+}
+
+pub fn matchesScopeSelector(scopes: []const []const u8, selector: []const u8) bool {
+    // Split top-level alternatives on commas, but let the evaluator handle
+    // commas nested in parentheses (the HTML injection selector uses them).
+    var depth: usize = 0;
+    var start: usize = 0;
+    var i: usize = 0;
+    while (i < selector.len) : (i += 1) {
+        switch (selector[i]) {
+            '(' => depth += 1,
+            ')' => depth -|= 1,
+            ',' => if (depth == 0) {
+                if (matchesAlternative(scopes, selector[start..i])) return true;
+                start = i + 1;
+            },
+            else => {},
+        }
+    }
+    return matchesAlternative(scopes, selector[start..]);
+}
+
+test "scope selector: wildcard segments" {
+    const scopes = [_][]const u8{
+        "text.html.markdown",
+        "meta.paragraph.markdown",
+        "meta.tag.block.any.html",
+    };
+    try std.testing.expect(matchesScopeSelector(&scopes, "meta.tag.*.*.html"));
+    try std.testing.expect(!matchesScopeSelector(&scopes, "meta.tag.*.html"));
+    try std.testing.expect(matchesScopeSelector(&scopes, "text.html"));
+}
+
+test "scope selector: html injection selector terminates" {
+    const selector = "R:text.html - (comment.block, text.html meta.embedded, meta.tag.*.*.html)";
+    const source = [_][]const u8{"source.zig"};
+    try std.testing.expect(!matchesScopeSelector(&source, selector));
+
+    const html = [_][]const u8{"text.html.basic"};
+    try std.testing.expect(matchesScopeSelector(&html, selector));
+
+    const tag = [_][]const u8{ "text.html.basic", "meta.tag.block.any.html" };
+    try std.testing.expect(!matchesScopeSelector(&tag, selector));
+}
+
+test "scope selector: unknown characters still make progress" {
+    const scopes = [_][]const u8{"source.zig"};
+    try std.testing.expect(!matchesScopeSelector(&scopes, "source.zig @bogus"));
+    try std.testing.expect(matchesScopeSelector(&scopes, "source.zig | @bogus"));
 }
