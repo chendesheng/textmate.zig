@@ -241,6 +241,58 @@ fn testSerializeDeserializeContinueParsing(allocator: std.mem.Allocator, io: std
     try std.testing.expectEqual(@as(usize, 1), state_b2.stack.items.len);
 }
 
+fn testWhileRulesKeepInlineScopes(allocator: std.mem.Allocator, io: std.Io) !void {
+    const grammar_json =
+        \\{
+        \\  "scopeName": "source.test",
+        \\  "patterns": [
+        \\    {
+        \\      "name": "list",
+        \\      "begin": "^- ",
+        \\      "while": "^  ",
+        \\      "patterns": [
+        \\        {
+        \\          "name": "paragraph",
+        \\          "begin": "(?=.)",
+        \\          "while": "^  ",
+        \\          "patterns": [
+        \\            { "match": "`[^`]+`", "name": "inline" }
+        \\          ]
+        \\        }
+        \\      ]
+        \\    }
+        \\  ]
+        \\}
+    ;
+
+    var grammar = try lib.Grammar.initWithData(allocator, grammar_json);
+    defer grammar.deinit();
+
+    var parser = try Parser.init(allocator, grammar);
+    defer parser.deinit();
+
+    var state = try parser.initState();
+    defer state.deinit();
+
+    var processor = try lib.NullProcessor.init(io, allocator);
+    defer processor.deinit();
+    parser.processor = &processor;
+    processor.state = &state;
+
+    // The list starts a paragraph. On the continuation line the paragraph's
+    // while rule fails and is popped; a zero-width paragraph is then pushed
+    // again at the same position. The old cycle baseline treated that push as
+    // a cycle and aborted before the inline rule could match.
+    try parser.parseLine(&state, "- item\n", true);
+    try parser.parseLine(&state, "  `code`\n", false);
+
+    var found_inline = false;
+    for (processor.captures.items) |capture| {
+        if (std.mem.eql(u8, capture.scope, "inline")) found_inline = true;
+    }
+    try std.testing.expect(found_inline);
+}
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     var stdout_writer = std.Io.File.stdout().writerStreaming(io, &.{});
@@ -266,6 +318,10 @@ pub fn main(init: std.process.Init) !void {
 
     try stdout.print("4. testSerializeDeserializeContinueParsing...", .{});
     try testSerializeDeserializeContinueParsing(allocator, io);
+    try stdout.print(" passed\n", .{});
+
+    try stdout.print("5. testWhileRulesKeepInlineScopes...", .{});
+    try testWhileRulesKeepInlineScopes(allocator, io);
     try stdout.print(" passed\n", .{});
 
     try stdout.print("\nAll serialize/deserialize tests passed successfully!\n", .{});
